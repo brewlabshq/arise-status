@@ -1,5 +1,8 @@
 [toolchain]
-channel = "stable"       # You can change this to "nightly" or a specific version like "1.75.0"
+channel = "nightly" # You can change this to "nightly" or a specific version like "1.75.0"
 components = ["rustfmt", "clippy"] # Useful Rust tools
-targets = ["x86_64-apple-darwin", "aarch64-apple-darwin"] # Supports both Intel and Apple Silicon Macs
-profile = "default"      # Could be "minimal", "default", or "complete"
+targets = [
+	"x86_64-apple-darwin",
+	"aarch64-apple-darwin",
+] # Supports both Intel and Apple Silicon Macs
+profile = "default" # Could be "minimal", "default", or "complete"
