@@ -10,7 +10,7 @@ Restart=always
 RestartSec=1
 User=sol
 LogRateLimitIntervalSec=0
-ExecStart=/home/sol/arise-status/start.sh
+ExecStart=/home/linuxuser/arise-status/start.sh
 
 
 [Install]
