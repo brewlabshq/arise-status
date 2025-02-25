@@ -10,6 +10,7 @@ Restart=always
 RestartSec=1
 User=sol
 LogRateLimitIntervalSec=0
+Environment="PATH=/home/sol/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 ExecStart=/home/sol/arise-status/start.sh
 
 
