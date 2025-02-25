@@ -11,3 +11,7 @@ RestartSec=1
 User=sol
 LogRateLimitIntervalSec=0
 ExecStart=/home/sol/arise-status/start.sh
+
+
+[Install]
+WantedBy=multi-user.target
