@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 // Use to check if server is alive or not
 use anyhow::Error;
 use reqwest::Client;
@@ -20,7 +22,7 @@ pub fn handle_alive(rpc: String, url: String, name: String) -> Result<JoinHandle
 pub(crate) async fn check_alive(rpc: String, url: String, name: String) -> Result<(), Error> {
     let client = Client::new();
 
-    let req = client.get(rpc.as_str()).send().await?;
+    let req = client.get(format!("{}{}", rpc, "/health")).send().await?;
 
     let is_success = req.status().is_success();
     if is_success {

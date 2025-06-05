@@ -1,4 +1,5 @@
 mod alive;
+mod version;
 
 use alive::handle_alive;
 use anyhow::Error;
