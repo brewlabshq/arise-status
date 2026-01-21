@@ -48,15 +48,33 @@ pub(crate) async fn check_alive(
     pagerduty_url: String,
     pagerduty_key: String,
 ) -> Result<(), Error> {
-    let client = Client::new();
+    // Create HTTP client with timeout configuration
+    // 5 second timeout for connection + 10 second timeout for total request
+    let client = Client::builder()
+        .timeout(tokio::time::Duration::from_secs(10))
+        .connect_timeout(tokio::time::Duration::from_secs(5))
+        .build()?;
 
     // Check RPC health
     let health_url = format!("{}{}", rpc, "/health");
     let req = match client.get(&health_url).send().await {
         Ok(response) => response,
         Err(e) => {
-            // Network error or timeout
-            handle_health_state_change(false, &name, &rpc, &pagerduty_url, &pagerduty_key, Some(format!("Network error: {}", e))).await;
+            // Handle various error scenarios:
+            // - Server is down/unreachable
+            // - Connection timeout
+            // - DNS resolution failure
+            // - Network errors
+            let error_msg = if e.is_timeout() {
+                format!("RPC server timeout - server may be down or unreachable: {}", e)
+            } else if e.is_connect() {
+                format!("RPC server connection failed - server may be down: {}", e)
+            } else {
+                format!("RPC server error - server may be down: {}", e)
+            };
+            
+            eprintln!("RPC health check failed: {}", error_msg);
+            handle_health_state_change(false, &name, &rpc, &pagerduty_url, &pagerduty_key, Some(error_msg)).await;
             return Err(Error::from(e));
         }
     };
