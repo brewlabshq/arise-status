@@ -3,10 +3,8 @@ use anyhow::Error;
 use reqwest::Client;
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::task::JoinHandle;
-
-// Track the current health state to avoid duplicate alerts
-static IS_HEALTHY: AtomicBool = AtomicBool::new(true);
 
 pub fn handle_alive(
     rpc: String,
@@ -15,6 +13,10 @@ pub fn handle_alive(
     pagerduty_url: String,
     pagerduty_key: String,
 ) -> Result<JoinHandle<()>, Error> {
+    // Track the current health state per RPC instance to avoid duplicate alerts
+    let is_healthy = Arc::new(AtomicBool::new(true));
+    let is_healthy_clone = Arc::clone(&is_healthy);
+    
     let j = tokio::spawn(async move {
         loop {
             match check_alive(
@@ -23,6 +25,7 @@ pub fn handle_alive(
                 name.clone(),
                 pagerduty_url.clone(),
                 pagerduty_key.clone(),
+                &is_healthy_clone,
             )
             .await
             {
@@ -30,7 +33,7 @@ pub fn handle_alive(
                     // Health check passed
                 }
                 Err(err) => {
-                    eprintln!("Error checking alive for {:?}: {}", name, err);
+                    eprintln!("[{}] Error checking alive: {}", name, err);
                 }
             }
 
@@ -47,6 +50,7 @@ pub(crate) async fn check_alive(
     name: String,
     pagerduty_url: String,
     pagerduty_key: String,
+    is_healthy: &Arc<AtomicBool>,
 ) -> Result<(), Error> {
     // Create HTTP client with timeout configuration
     // 5 second timeout for connection + 10 second timeout for total request
@@ -73,8 +77,8 @@ pub(crate) async fn check_alive(
                 format!("RPC server error - server may be down: {}", e)
             };
             
-            eprintln!("RPC health check failed: {}", error_msg);
-            handle_health_state_change(false, &name, &rpc, &pagerduty_url, &pagerduty_key, Some(error_msg)).await;
+            eprintln!("[{}] RPC health check failed: {}", name, error_msg);
+            handle_health_state_change(false, &name, &rpc, &pagerduty_url, &pagerduty_key, Some(error_msg), is_healthy).await;
             return Err(Error::from(e));
         }
     };
@@ -82,14 +86,14 @@ pub(crate) async fn check_alive(
     let is_success = req.status().is_success();
     
     if is_success {
-        println!("RPC alive");
+        println!("[{}] RPC alive", name);
         // Service is healthy - send resolve if it was previously unhealthy
-        handle_health_state_change(true, &name, &rpc, &pagerduty_url, &pagerduty_key, None).await;
+        handle_health_state_change(true, &name, &rpc, &pagerduty_url, &pagerduty_key, None, is_healthy).await;
     } else {
         let status = req.status();
         let error_msg = format!("RPC returned status: {}", status);
-        eprintln!("RPC health check failed: {}", error_msg);
-        handle_health_state_change(false, &name, &rpc, &pagerduty_url, &pagerduty_key, Some(error_msg)).await;
+        eprintln!("[{}] RPC health check failed: {}", name, error_msg);
+        handle_health_state_change(false, &name, &rpc, &pagerduty_url, &pagerduty_key, Some(error_msg), is_healthy).await;
         return Err(Error::msg("RPC failed to respond"));
     }
 
@@ -98,9 +102,9 @@ pub(crate) async fn check_alive(
         let client_ping = Client::new();
         if let Ok(req_ping) = client_ping.get(url.as_str()).send().await {
             if req_ping.status().is_success() {
-                println!("Status posted successfully to ping URL");
+                println!("[{}] Status posted successfully to ping URL", name);
             } else {
-                eprintln!("Error posting status to ping URL for {}", name);
+                eprintln!("[{}] Error posting status to ping URL", name);
             }
         }
     }
@@ -109,24 +113,25 @@ pub(crate) async fn check_alive(
 }
 
 async fn handle_health_state_change(
-    is_healthy: bool,
+    is_healthy_now: bool,
     service_name: &str,
     rpc_url: &str,
     pagerduty_url: &str,
     pagerduty_key: &str,
     error_msg: Option<String>,
+    is_healthy: &Arc<AtomicBool>,
 ) {
-    let was_healthy = IS_HEALTHY.swap(is_healthy, Ordering::SeqCst);
+    let was_healthy = is_healthy.swap(is_healthy_now, Ordering::SeqCst);
     
     // Only send alerts on state transitions
-    if was_healthy == is_healthy {
+    if was_healthy == is_healthy_now {
         return; // No state change, skip alert
     }
 
-    let event_action = if is_healthy { "resolve" } else { "trigger" };
-    let severity = if is_healthy { "info" } else { "critical" };
+    let event_action = if is_healthy_now { "resolve" } else { "trigger" };
+    let severity = if is_healthy_now { "info" } else { "critical" };
     
-    let summary = if is_healthy {
+    let summary = if is_healthy_now {
         format!("Solana RPC health check recovered for {}", service_name)
     } else {
         format!("Solana RPC health check failed for {}", service_name)
@@ -157,13 +162,13 @@ async fn handle_health_state_change(
     {
         Ok(response) => {
             if response.status().is_success() {
-                println!("PagerDuty {} event sent successfully", event_action);
+                println!("[{}] PagerDuty {} event sent successfully", service_name, event_action);
             } else {
-                eprintln!("Failed to send PagerDuty event: HTTP {}", response.status());
+                eprintln!("[{}] Failed to send PagerDuty event: HTTP {}", service_name, response.status());
             }
         }
         Err(e) => {
-            eprintln!("Error sending PagerDuty event: {}", e);
+            eprintln!("[{}] Error sending PagerDuty event: {}", service_name, e);
         }
     }
 }

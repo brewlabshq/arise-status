@@ -1,39 +1,62 @@
 mod alive;
+mod config;
 mod version;
 
 use alive::handle_alive;
-use anyhow::Error;
+use anyhow::{Context, Error};
+use config::Config;
 use dotenv::dotenv;
 use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     dotenv().ok();
-    let url = env::var("PING_URL").unwrap_or_else(|_| String::new()); // Optional, can be empty
-    let name = env::var("SERVICE_NAME").expect("SERVICE_NAME environment variable not set");
-    let rpc = env::var("RPC_URL").expect("RPC_URL environment variable not set");
     
-    // PagerDuty configuration
-    let pagerduty_url = env::var("PAGERDUTY_URL")
-        .unwrap_or_else(|_| "https://events.pagerduty.com/v2/enqueue".to_string());
-    let pagerduty_key = env::var("PAGERDUTY_ROUTING_KEY")
-        .expect("PAGERDUTY_ROUTING_KEY environment variable not set");
+    // Get config file path from environment or use default
+    let config_path = env::var("CONFIG_FILE")
+        .unwrap_or_else(|_| "config.json".to_string());
+    
+    let config = Config::from_file(&config_path)
+        .with_context(|| format!("Failed to load config from: {}", config_path))?;
+    
+    let pagerduty_url = config.get_pagerduty_url();
     
     println!("Starting ARISE Status Monitor");
-    println!("Service: {}", name);
-    println!("RPC URL: {}", rpc);
-    println!("PagerDuty configured: {}", pagerduty_url);
-    println!("Monitoring started - will alert on health check failures");
+    println!("Config file: {}", config_path);
+    println!("PagerDuty URL: {}", pagerduty_url);
+    println!("Monitoring {} RPC server(s)", config.rpc_servers.len());
+    println!("---");
     
-    let join_handle = handle_alive(
-        rpc.clone(),
-        url.clone(),
-        name.clone(),
-        pagerduty_url.clone(),
-        pagerduty_key.clone(),
-    )
-    .unwrap();
-
-    join_handle.await?;
+    // Spawn monitoring task for each RPC server
+    let mut join_handles = Vec::new();
+    
+    for rpc_server in config.rpc_servers {
+        let name = rpc_server.name.clone();
+        let url = rpc_server.url.clone();
+        let ping_url = rpc_server.ping_url.clone().unwrap_or_else(String::new);
+        let pagerduty_key = rpc_server.pagerduty_key.clone();
+        let pagerduty_url_clone = pagerduty_url.clone();
+        
+        println!("Starting monitor for: {} ({})", name, url);
+        
+        let handle = handle_alive(
+            url,
+            ping_url,
+            name,
+            pagerduty_url_clone,
+            pagerduty_key,
+        )
+        .context("Failed to start monitoring task")?;
+        
+        join_handles.push(handle);
+    }
+    
+    println!("---");
+    println!("All monitors started - will alert on health check failures");
+    
+    // Wait for all monitoring tasks (they run forever, so this will block)
+    // In practice, you might want to handle graceful shutdown
+    futures::future::join_all(join_handles).await;
+    
     Ok(())
 }

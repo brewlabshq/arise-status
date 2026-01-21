@@ -1,0 +1,16 @@
+{
+  "pagerduty_url": "https://events.pagerduty.com/v2/enqueue",
+  "rpc_servers": [
+    {
+      "name": "Wind Server",
+      "url": "http://XXXXXXX:8899",
+      "pagerduty_key": "XXXXXXX"
+    },
+    {
+      "name": "Singapore RPC",
+      "url": "http://XXXXXXX:8899",
+      "pagerduty_key": "XXXXXXX"
+    }
+  ]
+}
+
