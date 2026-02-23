@@ -36,6 +36,8 @@ async fn main() -> Result<(), Error> {
         let ping_url = rpc_server.ping_url.clone().unwrap_or_else(String::new);
         let pagerduty_key = rpc_server.pagerduty_key.clone();
         let pagerduty_url_clone = pagerduty_url.clone();
+        let reference_rpc_url = rpc_server.reference_rpc_url.clone();
+        let slot_distance_threshold = rpc_server.slot_distance_threshold.unwrap_or(10);
         
         println!("Starting monitor for: {} ({})", name, url);
         
@@ -45,6 +47,8 @@ async fn main() -> Result<(), Error> {
             name,
             pagerduty_url_clone,
             pagerduty_key,
+            reference_rpc_url,
+            slot_distance_threshold,
         )
         .context("Failed to start monitoring task")?;
         

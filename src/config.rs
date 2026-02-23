@@ -6,9 +6,16 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcServer {
     pub name: String,
+    /// Validator RPC URL (our node)
     pub url: String,
     #[serde(default)]
     pub ping_url: Option<String>,
+    /// Stable reference RPC URL for slot comparison (e.g. Helius). If set, health = slot distance <= threshold.
+    #[serde(default)]
+    pub reference_rpc_url: Option<String>,
+    /// Max allowed slot distance (validator vs reference). Alert when exceeded. Default 10.
+    #[serde(default)]
+    pub slot_distance_threshold: Option<u64>,
     pub pagerduty_key: String,
 }
 
