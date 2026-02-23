@@ -172,12 +172,18 @@ pub(crate) async fn check_alive(
                 return Err(Error::from(e));
             }
         };
-        let is_success = req.status().is_success();
+        let status = req.status();
+        let body = req.text().await.unwrap_or_default();
+        let body_lower = body.to_lowercase();
+        // Treat as healthy on HTTP success, or when body indicates "ok" / "behind" (node behind but acceptable)
+        let is_success = status.is_success()
+            || body_lower.contains("ok")
+            || body_lower.contains("behind");
         if is_success {
             println!("[{}] RPC alive", name);
             (true, None)
         } else {
-            let error_msg = format!("RPC returned status: {}", req.status());
+            let error_msg = format!("RPC returned status: {}", status);
             eprintln!("[{}] RPC health check failed: {}", name, error_msg);
             (false, Some(error_msg))
         }
