@@ -32,6 +32,33 @@ async fn get_slot(client: &Client, rpc_url: &str) -> Result<u64, Error> {
     Ok(slot)
 }
 
+/// Calls get_slot with retries (same pattern as health endpoint: retry count + 100ms sleep).
+async fn get_slot_with_retries(
+    client: &Client,
+    rpc_url: &str,
+    max_retry_count: u32,
+    name: &str,
+    kind: &str,
+) -> Result<u64, Error> {
+    let mut retry_count = 0u32;
+    loop {
+        match get_slot(client, rpc_url).await {
+            Ok(slot) => return Ok(slot),
+            Err(e) => {
+                if retry_count >= max_retry_count {
+                    return Err(e);
+                }
+                retry_count = retry_count.saturating_add(1);
+                eprintln!(
+                    "[{}] {} getSlot failed, retry {}/{}: {}",
+                    name, kind, retry_count, max_retry_count, e
+                );
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+}
+
 pub fn handle_alive(
     rpc: String,
     url: String,
@@ -92,11 +119,19 @@ pub(crate) async fn check_alive(
         .build()?;
 
     let (healthy, error_msg) = if let Some(ref ref_url) = reference_rpc_url {
-        // Slot-distance check: compare validator slot vs reference RPC slot
-        let validator_slot = match get_slot(&client, &rpc).await {
+        // Slot-distance check: compare validator slot vs reference RPC slot (with retries)
+        let validator_slot = match get_slot_with_retries(
+            &client,
+            &rpc,
+            health_retry_count,
+            &name,
+            "Validator",
+        )
+        .await
+        {
             Ok(s) => s,
             Err(e) => {
-                let error_msg = format!("Validator getSlot failed: {}", e);
+                let error_msg = format!("Validator getSlot failed after {} retries: {}", health_retry_count, e);
                 eprintln!("[{}] {}", name, error_msg);
                 handle_health_state_change(
                     false,
@@ -111,10 +146,21 @@ pub(crate) async fn check_alive(
                 return Err(e);
             }
         };
-        let reference_slot = match get_slot(&client, ref_url).await {
+        let reference_slot = match get_slot_with_retries(
+            &client,
+            ref_url,
+            health_retry_count,
+            &name,
+            "Reference RPC",
+        )
+        .await
+        {
             Ok(s) => s,
             Err(e) => {
-                let error_msg = format!("Reference RPC getSlot failed: {}", e);
+                let error_msg = format!(
+                    "Reference RPC getSlot failed after {} retries: {}",
+                    health_retry_count, e
+                );
                 eprintln!("[{}] {}", name, error_msg);
                 handle_health_state_change(
                     false,
