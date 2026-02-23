@@ -25,6 +25,9 @@ pub struct RpcServer {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub pagerduty_url: Option<String>,
+    /// Seconds between each health check poll. Default 1.
+    #[serde(default)]
+    pub interval_secs: Option<u64>,
     pub rpc_servers: Vec<RpcServer>,
 }
 
@@ -47,6 +50,11 @@ impl Config {
         self.pagerduty_url
             .clone()
             .unwrap_or_else(|| "https://events.pagerduty.com/v2/enqueue".to_string())
+    }
+
+    /// Polling interval in seconds between health checks. Default 1.
+    pub fn get_interval_secs(&self) -> u64 {
+        self.interval_secs.unwrap_or(1)
     }
 }
 

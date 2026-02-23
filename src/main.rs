@@ -20,7 +20,8 @@ async fn main() -> Result<(), Error> {
         .with_context(|| format!("Failed to load config from: {}", config_path))?;
     
     let pagerduty_url = config.get_pagerduty_url();
-    
+    let interval_secs = config.get_interval_secs();
+
     println!("Starting ARISE Status Monitor");
     println!("Config file: {}", config_path);
     println!("PagerDuty URL: {}", pagerduty_url);
@@ -51,6 +52,7 @@ async fn main() -> Result<(), Error> {
             reference_rpc_url,
             slot_distance_threshold,
             health_retry_count,
+            interval_secs,
         )
         .context("Failed to start monitoring task")?;
         

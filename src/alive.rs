@@ -68,6 +68,7 @@ pub fn handle_alive(
     reference_rpc_url: Option<String>,
     slot_distance_threshold: u64,
     health_retry_count: u32,
+    interval_secs: u64,
 ) -> Result<JoinHandle<()>, Error> {
     // Track the current health state per RPC instance to avoid duplicate alerts
     let is_healthy = Arc::new(AtomicBool::new(true));
@@ -94,7 +95,7 @@ pub fn handle_alive(
                 }
             }
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(interval_secs)).await;
         }
     });
 
