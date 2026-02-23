@@ -6,6 +6,7 @@
       "url": "http://100.65.185.90:8899",
       "reference_rpc_url": "https://mainnet.helius-rpc.com/?api-key=YOUR_HELIUS_API_KEY",
       "slot_distance_threshold": 10,
+      "health_retry_count": 3,
       "pagerduty_key": "YOUR_PAGERDUTY_KEY"
     },
     {
@@ -13,6 +14,7 @@
       "url": "http://another-ip:8899",
       "reference_rpc_url": "https://mainnet.helius-rpc.com/?api-key=YOUR_HELIUS_API_KEY",
       "slot_distance_threshold": 10,
+      "health_retry_count": 3,
       "pagerduty_key": "YOUR_PAGERDUTY_KEY"
     }
   ]

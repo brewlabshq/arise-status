@@ -16,6 +16,9 @@ pub struct RpcServer {
     /// Max allowed slot distance (validator vs reference). Alert when exceeded. Default 10.
     #[serde(default)]
     pub slot_distance_threshold: Option<u64>,
+    /// Number of retries for /health endpoint before marking unhealthy. Default 3.
+    #[serde(default)]
+    pub health_retry_count: Option<u32>,
     pub pagerduty_key: String,
 }
 

@@ -40,6 +40,7 @@ pub fn handle_alive(
     pagerduty_key: String,
     reference_rpc_url: Option<String>,
     slot_distance_threshold: u64,
+    health_retry_count: u32,
 ) -> Result<JoinHandle<()>, Error> {
     // Track the current health state per RPC instance to avoid duplicate alerts
     let is_healthy = Arc::new(AtomicBool::new(true));
@@ -55,6 +56,7 @@ pub fn handle_alive(
                 pagerduty_key.clone(),
                 reference_rpc_url.clone(),
                 slot_distance_threshold,
+                health_retry_count,
                 &is_healthy_clone,
             )
             .await
@@ -80,6 +82,7 @@ pub(crate) async fn check_alive(
     pagerduty_key: String,
     reference_rpc_url: Option<String>,
     slot_distance_threshold: u64,
+    health_retry_count: u32,
     is_healthy: &Arc<AtomicBool>,
 ) -> Result<(), Error> {
     // Create HTTP client with timeout configuration
@@ -146,47 +149,66 @@ pub(crate) async fn check_alive(
         }
         (healthy, error_msg)
     } else {
-        // Fallback: /health endpoint check
+        // Fallback: /health endpoint check with retries
         let health_url = format!("{}{}", rpc, "/health");
-        let req = match client.get(&health_url).send().await {
-            Ok(response) => response,
-            Err(e) => {
-                let error_msg = if e.is_timeout() {
-                    format!("RPC server timeout - server may be down or unreachable: {}", e)
-                } else if e.is_connect() {
-                    format!("RPC server connection failed - server may be down: {}", e)
-                } else {
-                    format!("RPC server error - server may be down: {}", e)
-                };
-                eprintln!("[{}] RPC health check failed: {}", name, error_msg);
-                handle_health_state_change(
-                    false,
-                    &name,
-                    &rpc,
-                    &pagerduty_url,
-                    &pagerduty_key,
-                    Some(error_msg.clone()),
-                    is_healthy,
-                )
-                .await;
-                return Err(Error::from(e));
+        let max_retry_count = health_retry_count;
+        let mut retry_count = 0u32;
+        let mut last_error_msg: Option<String> = None;
+        let mut healthy = false;
+
+        loop {
+            match client.get(&health_url).send().await {
+                Ok(response) => {
+                    let status = response.status();
+                    let body = response.text().await.unwrap_or_default();
+                    let body_lower = body.to_lowercase();
+                    // Treat as healthy on HTTP success, or when body indicates "ok" / "behind"
+                    if status.is_success()
+                        || body_lower.contains("ok")
+                        || body_lower.contains("behind")
+                    {
+                        println!("[{}] RPC alive", name);
+                        healthy = true;
+                        last_error_msg = None;
+                        break;
+                    }
+                    last_error_msg = Some(format!("RPC returned status: {}", status));
+                }
+                Err(e) => {
+                    last_error_msg = Some(if e.is_timeout() {
+                        format!("RPC server timeout - server may be down or unreachable: {}", e)
+                    } else if e.is_connect() {
+                        format!("RPC server connection failed - server may be down: {}", e)
+                    } else {
+                        format!("RPC server error - server may be down: {}", e)
+                    });
+                }
             }
-        };
-        let status = req.status();
-        let body = req.text().await.unwrap_or_default();
-        let body_lower = body.to_lowercase();
-        // Treat as healthy on HTTP success, or when body indicates "ok" / "behind" (node behind but acceptable)
-        let is_success = status.is_success()
-            || body_lower.contains("ok")
-            || body_lower.contains("behind");
-        if is_success {
-            println!("[{}] RPC alive", name);
-            (true, None)
-        } else {
-            let error_msg = format!("RPC returned status: {}", status);
-            eprintln!("[{}] RPC health check failed: {}", name, error_msg);
-            (false, Some(error_msg))
+
+            if retry_count >= max_retry_count {
+                break;
+            }
+            retry_count = retry_count.saturating_add(1);
+            eprintln!(
+                "[{}] Health check failed, retry {}/{}: {}",
+                name,
+                retry_count,
+                max_retry_count,
+                last_error_msg.as_deref().unwrap_or("unknown")
+            );
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
+
+        let error_msg = if healthy { None } else { last_error_msg };
+        if !healthy {
+            eprintln!(
+                "[{}] RPC health check failed after {} retries: {}",
+                name,
+                retry_count,
+                error_msg.as_deref().unwrap_or("unknown")
+            );
+        }
+        (healthy, error_msg)
     };
 
     handle_health_state_change(
