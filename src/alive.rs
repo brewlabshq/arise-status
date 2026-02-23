@@ -32,7 +32,7 @@ async fn get_slot(client: &Client, rpc_url: &str) -> Result<u64, Error> {
     Ok(slot)
 }
 
-/// Calls get_slot with retries (same pattern as health endpoint: retry count + 100ms sleep).
+/// Calls get_slot with retries (same pattern as health endpoint: retry count + 1000ms sleep).
 async fn get_slot_with_retries(
     client: &Client,
     rpc_url: &str,
@@ -53,7 +53,7 @@ async fn get_slot_with_retries(
                     "[{}] {} getSlot failed, retry {}/{}: {}",
                     name, kind, retry_count, max_retry_count, e
                 );
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             }
         }
     }
@@ -242,7 +242,7 @@ pub(crate) async fn check_alive(
                 max_retry_count,
                 last_error_msg.as_deref().unwrap_or("unknown")
             );
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
 
         let error_msg = if healthy { None } else { last_error_msg };
