@@ -65,7 +65,7 @@ pub fn handle_alive(
                 }
             }
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
     });
 
