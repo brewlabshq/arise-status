@@ -175,23 +175,32 @@ pub(crate) async fn check_alive(
                 return Err(e);
             }
         };
-        let distance = (validator_slot as i64 - reference_slot as i64).unsigned_abs();
-        let healthy = distance <= slot_distance_threshold;
+        // Only alert when *our node* is behind the reference. We don't care if Helius/reference is behind us.
+        let slots_behind = if validator_slot < reference_slot {
+            reference_slot - validator_slot
+        } else {
+            0 // our node is ahead or equal — always healthy
+        };
+        let healthy = slots_behind <= slot_distance_threshold;
         let error_msg = if healthy {
             None
         } else {
             Some(format!(
-                "Slot distance {} > threshold {} (validator_slot={}, reference_slot={})",
-                distance, slot_distance_threshold, validator_slot, reference_slot
+                "Our node is {} slots behind reference (threshold {}), validator_slot={}, reference_slot={}",
+                slots_behind, slot_distance_threshold, validator_slot, reference_slot
             ))
         };
         if healthy {
-            println!(
-                "[{}] RPC alive (slot distance {} <= {})",
-                name, distance, slot_distance_threshold
-            );
+            if slots_behind > 0 {
+                println!(
+                    "[{}] RPC alive (our node {} slots behind, <= {})",
+                    name, slots_behind, slot_distance_threshold
+                );
+            } else {
+                println!("[{}] RPC alive (our node ahead or equal)", name);
+            }
         } else {
-            eprintln!("[{}] {}", name, error_msg.as_deref().unwrap_or("slot distance exceeded"));
+            eprintln!("[{}] {}", name, error_msg.as_deref().unwrap_or("our node too far behind"));
         }
         (healthy, error_msg)
     } else {
