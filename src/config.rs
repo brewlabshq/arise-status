@@ -19,6 +19,9 @@ pub struct RpcServer {
     /// Number of retries for /health endpoint before marking unhealthy. Default 3.
     #[serde(default)]
     pub health_retry_count: Option<u32>,
+    /// Consecutive "slots behind reference" checks before triggering PagerDuty. Default 1 (alert immediately).
+    #[serde(default)]
+    pub slot_behind_retry_count: Option<u32>,
     pub pagerduty_key: String,
 }
 

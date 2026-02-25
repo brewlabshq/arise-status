@@ -2,7 +2,7 @@
 use anyhow::{Context, Error};
 use reqwest::Client;
 use serde_json::json;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -68,11 +68,15 @@ pub fn handle_alive(
     reference_rpc_url: Option<String>,
     slot_distance_threshold: u64,
     health_retry_count: u32,
+    slot_behind_retry_count: u32,
     interval_secs: u64,
 ) -> Result<JoinHandle<()>, Error> {
     // Track the current health state per RPC instance to avoid duplicate alerts
     let is_healthy = Arc::new(AtomicBool::new(true));
     let is_healthy_clone = Arc::clone(&is_healthy);
+    // Consecutive checks where node was behind reference (only alert after slot_behind_retry_count)
+    let consecutive_behind = Arc::new(AtomicU32::new(0));
+    let consecutive_behind_clone = Arc::clone(&consecutive_behind);
 
     let j = tokio::spawn(async move {
         loop {
@@ -85,7 +89,9 @@ pub fn handle_alive(
                 reference_rpc_url.clone(),
                 slot_distance_threshold,
                 health_retry_count,
+                slot_behind_retry_count,
                 &is_healthy_clone,
+                &consecutive_behind_clone,
             )
             .await
             {
@@ -111,7 +117,9 @@ pub(crate) async fn check_alive(
     reference_rpc_url: Option<String>,
     slot_distance_threshold: u64,
     health_retry_count: u32,
+    slot_behind_retry_count: u32,
     is_healthy: &Arc<AtomicBool>,
+    consecutive_behind: &Arc<AtomicU32>,
 ) -> Result<(), Error> {
     // Create HTTP client with timeout configuration
     let client = Client::builder()
@@ -192,6 +200,7 @@ pub(crate) async fn check_alive(
             ))
         };
         if healthy {
+            consecutive_behind.store(0, Ordering::SeqCst);
             if slots_behind > 0 {
                 println!(
                     "[{}] RPC alive (our node {} slots behind, <= {})",
@@ -201,7 +210,26 @@ pub(crate) async fn check_alive(
                 println!("[{}] RPC alive (our node ahead or equal)", name);
             }
         } else {
-            eprintln!("[{}] {}", name, error_msg.as_deref().unwrap_or("our node too far behind"));
+            let n = consecutive_behind.fetch_add(1, Ordering::SeqCst) + 1;
+            eprintln!("[{}] {} (consecutive {}/{})", name, error_msg.as_deref().unwrap_or("our node too far behind"), n, slot_behind_retry_count);
+            // Only trigger PagerDuty after slot_behind_retry_count consecutive behind checks
+            if n >= slot_behind_retry_count {
+                handle_health_state_change(
+                    false,
+                    &name,
+                    &rpc,
+                    &pagerduty_url,
+                    &pagerduty_key,
+                    error_msg.clone(),
+                    is_healthy,
+                )
+                .await;
+                return Err(Error::msg(
+                    error_msg.unwrap_or_else(|| "slot distance exceeded".to_string()),
+                ));
+            }
+            // Not yet at retry count: do not transition to unhealthy, no PagerDuty
+            return Ok(());
         }
         (healthy, error_msg)
     } else {
